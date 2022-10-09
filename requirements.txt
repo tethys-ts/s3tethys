@@ -1,0 +1,7 @@
+boto3
+requests
+pandas
+zstandard
+orjson
+tethys-data-models
+tethys_smart_open

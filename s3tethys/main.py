@@ -97,42 +97,42 @@ def get_object_s3(obj_key: str, bucket: str, s3: botocore.client.BaseClient = No
 
     Returns
     -------
-    bytes
-        bytes object of the S3 object.
+    file object
+        file object of the S3 object.
     """
     transport_params = {'buffer_size': chunk_size}
 
     if isinstance(version_id, str):
         transport_params['version_id'] = version_id
 
-    ## Headers
-    headers = {}
     # Range
-    range_dict = {}
+    if (range_start is not None) or (range_end is not None):
+        range_dict = {}
+        if range_start is not None:
+            range_dict['start'] = str(range_start)
+        else:
+            range_dict['start'] = ''
+    
+        if range_end is not None:
+            range_dict['end'] = str(range_end)
+        else:
+            range_dict['end'] = ''
 
-    if range_start is not None:
-        range_dict['start'] = str(range_start)
+        range1 = 'bytes={start}-{end}'.format(**range_dict)
     else:
-        range_dict['start'] = ''
-
-    if range_end is not None:
-        range_dict['end'] = str(range_end)
-    else:
-        range_dict['end'] = ''
+        range1 = None
 
     ## Get the object
     if isinstance(public_url, str) and (version_id is None):
         url = utils.create_public_s3_url(public_url, bucket, obj_key)
 
-        if range_dict:
-            range1 = 'bytes={start}-{end}'.format(**range_dict)
-            headers['Range'] = range1
+        if range1 is not None:
+            transport_params['headers'] = {'Range': range1}
 
-        file_obj = smart_open.open(url, 'rb', headers=headers, transport_params=transport_params, compression='disable')
+        file_obj = smart_open.open(url, 'rb', transport_params=transport_params, compression='disable')
 
     elif isinstance(s3, botocore.client.BaseClient) or isinstance(connection_config, dict):
-        if range_dict:
-            range1 = 'bytes={start}-{end}'.format(**range_dict)
+        if range1 is not None:
             transport_params.update({'client_kwargs': {'S3.Client.get_object': {'Range': range1}}})
 
         if s3 is None:
@@ -201,13 +201,12 @@ def decompress_stream_to_object(file_obj, compression, chunk_size=524288):
     if compression == 'zstd':
         dctx = zstd.ZstdDecompressor()
 
-        with open(b1, 'wb') as f:
-            dctx.copy_stream(file_obj, f, read_size=chunk_size, write_size=chunk_size)
+        dctx.copy_stream(file_obj, b1, read_size=chunk_size, write_size=chunk_size)
 
     elif compression == '.gz':
 
-        with gzip.open(file_obj, 'rb') as s_file, open(b1, 'wb') as d_file:
-            shutil.copyfileobj(s_file, d_file, chunk_size)
+        with gzip.open(file_obj, 'rb') as s_file:
+            shutil.copyfileobj(s_file, b1, chunk_size)
 
     else:
         with open(b1, 'wb') as f:
@@ -215,6 +214,8 @@ def decompress_stream_to_object(file_obj, compression, chunk_size=524288):
             while chunk:
                 f.write(chunk)
                 chunk = file_obj.read(chunk_size)
+
+    b1.seek(0)
 
     return b1
 

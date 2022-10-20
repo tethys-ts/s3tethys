@@ -288,14 +288,14 @@ def decompress_stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, c
     file_path1.parent.mkdir(parents=True, exist_ok=True)
 
     if file_path1.suffix == '.zst':
-        file_path2 = file_path1.stem
+        file_path2 = file_path1.parent.joinpath(file_path1.stem)
         dctx = zstd.ZstdDecompressor()
 
         with open(file_path2, 'wb') as f:
             dctx.copy_stream(file_obj, f, read_size=chunk_size, write_size=chunk_size)
 
     elif file_path1.suffix == '.gz':
-        file_path2 = file_path1.stem
+        file_path2 = file_path1.parent.joinpath(file_path1.stem)
 
         with gzip.open(file_obj, 'rb') as s_file, open(file_path2, 'wb') as d_file:
             shutil.copyfileobj(s_file, d_file, chunk_size)

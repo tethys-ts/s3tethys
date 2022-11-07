@@ -10,7 +10,7 @@ here = os.path.abspath(os.path.dirname(__file__))
 name = 's3tethys'
 main_package = 's3tethys'
 datasets = 'datasets'
-version = '0.0.4'
+version = '0.0.5'
 descrip = 'Python S3 tools for tethys using smart_open'
 
 # The below code is for readthedocs. To have sphinx/readthedocs interact with
@@ -19,7 +19,7 @@ descrip = 'Python S3 tools for tethys using smart_open'
 if os.environ.get('READTHEDOCS', False) == 'True':
     INSTALL_REQUIRES = []
 else:
-    INSTALL_REQUIRES = ['smart_open', 'boto3', 'requests', 'pandas', 'zstandard', 'tethys-data-models >=0.4.11']
+    INSTALL_REQUIRES = ['smart_open', 'boto3', 'requests', 'pandas', 'zstandard', 'tethys-data-models >=0.4.10']
 
 # Get the long description from the README file
 with open(os.path.join(here, 'README.rst'), encoding='utf-8') as f:

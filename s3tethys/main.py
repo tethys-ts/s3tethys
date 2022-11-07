@@ -43,7 +43,7 @@ s3_url_base = 's3://{bucket}/{key}'
 
 
 
-def s3_client(connection_config: dict, max_pool_connections: int = 30):
+def s3_client(connection_config: dict, max_pool_connections: int = 30, max_attempts: int = 3):
     """
     Function to establish a client connection with an S3 account. This can use the legacy connect (signature_version s3) and the curent version.
 
@@ -65,7 +65,7 @@ def s3_client(connection_config: dict, max_pool_connections: int = 30):
 
     if 'config' in s3_config:
         config0 = s3_config.pop('config')
-        config0.update({'max_pool_connections': max_pool_connections, 'retries': {'mode': 'standard'}, 'read_timeout': 120})
+        config0.update({'max_pool_connections': max_pool_connections, 'retries': {'mode': 'adaptive', 'max_attempts': max_attempts}, 'read_timeout': 120})
         config1 = boto3.session.Config(**config0)
 
         s3_config1 = s3_config.copy()
@@ -73,7 +73,7 @@ def s3_client(connection_config: dict, max_pool_connections: int = 30):
 
         s3 = boto3.client(**s3_config1)
     else:
-        s3_config.update({'config': botocore.config.Config(max_pool_connections=max_pool_connections, retries={'mode': 'standard'}, read_timeout=120)})
+        s3_config.update({'config': botocore.config.Config(max_pool_connections=max_pool_connections, retries={'mode': 'adaptive', 'max_attempts': max_attempts}, read_timeout=120)})
         s3 = boto3.client(**s3_config)
 
     return s3
@@ -121,7 +121,7 @@ def get_object_s3(obj_key: str, bucket: str, s3: botocore.client.BaseClient = No
             range_dict['start'] = str(range_start)
         else:
             range_dict['start'] = ''
-    
+
         if range_end is not None:
             range_dict['end'] = str(range_end)
         else:
@@ -209,7 +209,7 @@ def url_to_stream(url: HttpUrl, range_start: int=None, range_end: int=None, chun
             range_dict['start'] = str(range_start)
         else:
             range_dict['start'] = ''
-    
+
         if range_end is not None:
             range_dict['end'] = str(range_end)
         else:

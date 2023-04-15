@@ -86,7 +86,7 @@ def s3_client(connection_config: dict, max_pool_connections: int = 30, max_attem
 
 def get_object_s3(obj_key: str, bucket: str, s3: botocore.client.BaseClient = None, connection_config: dict = None, public_url: HttpUrl=None, version_id: str=None, range_start: int=None, range_end: int=None, chunk_size: int=524288, retries: int=3, read_timeout: int=120):
     """
-    General function to get an object from an S3 bucket. One of s3, connection_config, or public_url must be used.
+    General function to get an object from an S3 bucket. One of s3, connection_config, or public_url must be used. This function will return a file object of the object in the S3 (or url) location. This file object does not contain any data until data is read from it, which ensures large files are not completely read into memory.
 
     Parameters
     ----------
@@ -173,7 +173,7 @@ def get_object_s3(obj_key: str, bucket: str, s3: botocore.client.BaseClient = No
 
 def url_to_stream(url: HttpUrl, range_start: int=None, range_end: int=None, chunk_size: int=524288, retries: int=3, read_timeout: int=120):
     """
-    Function to create a file object from a file stored via http(s).
+    Function to create a file object from a file stored via http(s). This function will return a file object of the object in the url location. This file object does not contain any data until data is read from it, which ensures large files are not completely read into memory.
 
     Parameters
     ----------
@@ -236,7 +236,7 @@ def url_to_stream(url: HttpUrl, range_start: int=None, range_end: int=None, chun
 
 def stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, chunk_size: int=524288):
     """
-    Convert a file object (stream) to a local file on disk. No decompression will occur.
+    Convert a file object (stream) to a local file on disk. No decompression will occur. This function will read chunks of the file_obj and iteratively write those chunks to a file. Consequently, little memory is needed when saving a large file.
 
     Parameters
     ----------
@@ -263,7 +263,7 @@ def stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, chunk_size: 
 
 def decompress_stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, chunk_size: int=524288):
     """
-    Decompress a file object (stream) to a local file on disk. Decompression will occur if the file_path has an extension of .zst or .gz, otherwise no decompression will occur. If decompression occurs, then the extension will be removed from the file_path.
+    Decompress a file object (stream) to a local file on disk. Decompression will occur if the file_path has an extension of .zst or .gz, otherwise no decompression will occur. If decompression occurs, then the extension will be removed from the file_path. This function will read chunks of the file_obj and iteratively write those chunks to a file. Consequently, little memory is needed when saving a large file.
 
     Parameters
     ----------
@@ -303,7 +303,7 @@ def decompress_stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, c
 
 def decompress_stream_to_object(file_obj: io.BufferedIOBase, compression: str=None, chunk_size: int=524288):
     """
-    Decompress a file object (stream) to another file object. Decompression will occur only for compression options of zstd or gzip, otherwise no decompression will occur.
+    Decompress a file object (stream) to another file object. Decompression will occur only for compression options of zstd or gzip, otherwise no decompression will occur. This function will read the entire file_obj to another file object, but it will do it in chunks. Consequently, the entire file_obj will need to fit into memory.
 
     Parameters
     ----------
@@ -344,7 +344,7 @@ def decompress_stream_to_object(file_obj: io.BufferedIOBase, compression: str=No
 
 def put_object_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, file_obj: io.BufferedIOBase, metadata: dict=None, content_type: str=None, chunk_size: int=524288, retries: int=3):
     """
-    Function to upload data to an S3 bucket.
+    Function to upload data to an S3 bucket. This function will iteratively write the input file_obj in chunks ensuring that little memory is needed writing the object.
 
     Parameters
     ----------
@@ -416,7 +416,7 @@ def put_object_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, fil
 
 def put_file_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, file_path: AnyPath, metadata: dict=None, content_type: str=None, retries: int=3):
     """
-    Function to upload a local file to an S3 bucket.
+    Function to upload a local file to an S3 bucket. This function will iteratively write the input file in chunks ensuring that little memory is needed writing the object.
 
     Parameters
     ----------

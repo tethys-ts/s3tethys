@@ -14,7 +14,6 @@ import boto3
 import botocore
 from time import sleep
 from typing import Optional, List, Any, Union
-import tethys_data_models as tdm
 import pathlib
 from pydantic import HttpUrl
 import shutil
@@ -43,29 +42,35 @@ s3_url_base = 's3://{bucket}/{key}'
 
 
 
-def s3_client(connection_config: dict, max_pool_connections: int = 30, max_attempts: int = 3):
+def s3_client(connection_config: dict, max_pool_connections: int = 30, max_attempts: int = 3, retry_mode: str='adaptive', read_timeout: int=120):
     """
-    Function to establish a client connection with an S3 account. This can use the legacy connect (signature_version s3) and the curent version.
+    Function to establish a client connection with an S3 account. This can use the legacy connect (signature_version s3) and the current version.
 
     Parameters
     ----------
     connection_config : dict
-        A dictionary of the connection info necessary to establish an S3 connection. It should contain service_name, endpoint_url, aws_access_key_id, and aws_secret_access_key. connection_config can also be a URL to a public S3 bucket.
+        A dictionary of the connection info necessary to establish an S3 connection. It should contain service_name, endpoint_url, aws_access_key_id, and aws_secret_access_key.
     max_pool_connections : int
         The number of simultaneous connections for the S3 connection.
+    max_attempts: int
+        The number of max attempts passed to the "retries" option in the S3 config.
+    retry_mode: str
+        The retry mode passed to the "retries" option in the S3 config.
+    read_timeout: int
+        The read timeout in seconds passed to the "retries" option in the S3 config.
 
     Returns
     -------
     S3 client object
     """
     ## Validate config
-    _ = tdm.base.ConnectionConfig(**connection_config)
+    _ = utils.ConnectionConfig(**connection_config)
 
     s3_config = copy.deepcopy(connection_config)
 
     if 'config' in s3_config:
         config0 = s3_config.pop('config')
-        config0.update({'max_pool_connections': max_pool_connections, 'retries': {'mode': 'adaptive', 'max_attempts': max_attempts}, 'read_timeout': 120})
+        config0.update({'max_pool_connections': max_pool_connections, 'retries': {'mode': retry_mode, 'max_attempts': max_attempts}, 'read_timeout': read_timeout})
         config1 = boto3.session.Config(**config0)
 
         s3_config1 = s3_config.copy()
@@ -73,13 +78,13 @@ def s3_client(connection_config: dict, max_pool_connections: int = 30, max_attem
 
         s3 = boto3.client(**s3_config1)
     else:
-        s3_config.update({'config': botocore.config.Config(max_pool_connections=max_pool_connections, retries={'mode': 'adaptive', 'max_attempts': max_attempts}, read_timeout=120)})
+        s3_config.update({'config': botocore.config.Config(max_pool_connections=max_pool_connections, retries={'mode': retry_mode, 'max_attempts': max_attempts}, read_timeout=read_timeout)})
         s3 = boto3.client(**s3_config)
 
     return s3
 
 
-def get_object_s3(obj_key: str, bucket: str, s3: botocore.client.BaseClient = None, connection_config: dict = None, public_url: HttpUrl=None, version_id: str=None, range_start: int=None, range_end: int=None, chunk_size: int=524288, retries=3):
+def get_object_s3(obj_key: str, bucket: str, s3: botocore.client.BaseClient = None, connection_config: dict = None, public_url: HttpUrl=None, version_id: str=None, range_start: int=None, range_end: int=None, chunk_size: int=524288, retries: int=3, read_timeout: int=120):
     """
     General function to get an object from an S3 bucket. One of s3, connection_config, or public_url must be used.
 
@@ -103,6 +108,10 @@ def get_object_s3(obj_key: str, bucket: str, s3: botocore.client.BaseClient = No
         The byte range end for the file.
     chunk_size: int
         The amount of bytes to download as once.
+    retries: int
+        The number of url request retries to perform before failing. This shouldn't be necessary given the max_attempts parameter in the s3_client function...but I'll keep it around until it's clearly not needed.
+    read_timeout: int
+        The read timeout for the url request. This only applies if the public_url is set which consequently uses the url_to_stream function. The read_timeout for normal S3 requests are set in the s3_client function.
 
     Returns
     -------
@@ -135,32 +144,14 @@ def get_object_s3(obj_key: str, bucket: str, s3: botocore.client.BaseClient = No
     if isinstance(public_url, str) and (version_id is None):
         url = utils.create_public_s3_url(public_url, bucket, obj_key)
 
-        transport_params['timeout'] = 120
-
-        if range1 is not None:
-            transport_params['headers'] = {'Range': range1}
-
-        counter = retries
-        while True:
-            try:
-                file_obj = smart_open.open(url, 'rb', transport_params=transport_params, compression='disable')
-                break
-            except Exception as err:
-                counter = counter - 1
-                if counter > 0:
-                    sleep(3)
-                else:
-                    print('smart_open could not open url with the following error:')
-                    print(err)
-                    file_obj = None
-                    break
+        file_obj = url_to_stream(url, range_start, range_end, chunk_size, retries, read_timeout)
 
     elif isinstance(s3, botocore.client.BaseClient) or isinstance(connection_config, dict):
         if range1 is not None:
             transport_params.update({'client_kwargs': {'S3.Client.get_object': {'Range': range1}}})
 
         if s3 is None:
-            _ = tdm.base.ConnectionConfig(**connection_config)
+            _ = utils.ConnectionConfig(**connection_config)
 
             s3 = s3_client(connection_config)
 
@@ -180,9 +171,9 @@ def get_object_s3(obj_key: str, bucket: str, s3: botocore.client.BaseClient = No
     return file_obj
 
 
-def url_to_stream(url: HttpUrl, range_start: int=None, range_end: int=None, chunk_size: int=524288, retries=3):
+def url_to_stream(url: HttpUrl, range_start: int=None, range_end: int=None, chunk_size: int=524288, retries: int=3, read_timeout: int=120):
     """
-    General function to get an object from an S3 bucket. One of s3, connection_config, or public_url must be used.
+    Function to create a file object from a file stored via http(s).
 
     Parameters
     ----------
@@ -194,13 +185,17 @@ def url_to_stream(url: HttpUrl, range_start: int=None, range_end: int=None, chun
         The byte range end for the file.
     chunk_size: int
         The amount of bytes to download as once.
+    retries: int
+        The number of url request retries to perform before failing.
+    read_timeout: int
+        The read timeout for the url request.
 
     Returns
     -------
     file object
         file object of the S3 object.
     """
-    transport_params = {'buffer_size': chunk_size, 'timeout': 120}
+    transport_params = {'buffer_size': chunk_size, 'timeout': read_timeout}
 
     # Range
     if (range_start is not None) or (range_end is not None):
@@ -239,9 +234,9 @@ def url_to_stream(url: HttpUrl, range_start: int=None, range_end: int=None, chun
     return file_obj
 
 
-def stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, chunk_size=524288):
+def stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, chunk_size: int=524288):
     """
-    Convert a file object (stream) to a file on disk. no decompression will occur.
+    Convert a file object (stream) to a local file on disk. No decompression will occur.
 
     Parameters
     ----------
@@ -266,9 +261,9 @@ def stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, chunk_size=5
             chunk = file_obj.read(chunk_size)
 
 
-def decompress_stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, chunk_size=524288):
+def decompress_stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, chunk_size: int=524288):
     """
-    Decompress a file object (stream) to a file on disk. Decompression will occur if the file_path has an extension of .zst or .gz, otherwise no decompression will occur. If decompression occurs, then the extension will be removed from the file_path.
+    Decompress a file object (stream) to a local file on disk. Decompression will occur if the file_path has an extension of .zst or .gz, otherwise no decompression will occur. If decompression occurs, then the extension will be removed from the file_path.
 
     Parameters
     ----------
@@ -282,7 +277,6 @@ def decompress_stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, c
     Returns
     -------
     str path
-
     """
     file_path1 = pathlib.Path(file_path)
     file_path1.parent.mkdir(parents=True, exist_ok=True)
@@ -307,7 +301,7 @@ def decompress_stream_to_file(file_obj: io.BufferedIOBase, file_path: AnyPath, c
     return str(file_path2)
 
 
-def decompress_stream_to_object(file_obj: io.BufferedIOBase, compression=None, chunk_size=524288):
+def decompress_stream_to_object(file_obj: io.BufferedIOBase, compression: str=None, chunk_size: int=524288):
     """
     Decompress a file object (stream) to another file object. Decompression will occur only for compression options of zstd or gzip, otherwise no decompression will occur.
 
@@ -323,7 +317,6 @@ def decompress_stream_to_object(file_obj: io.BufferedIOBase, compression=None, c
     Returns
     -------
     file object
-
     """
     b1 = io.BytesIO()
 
@@ -349,7 +342,7 @@ def decompress_stream_to_object(file_obj: io.BufferedIOBase, compression=None, c
     return b1
 
 
-def put_object_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, file_obj: io.BufferedIOBase, metadata: dict=None, content_type: str=None, chunk_size=524288, retries=3):
+def put_object_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, file_obj: io.BufferedIOBase, metadata: dict=None, content_type: str=None, chunk_size: int=524288, retries: int=3):
     """
     Function to upload data to an S3 bucket.
 
@@ -367,6 +360,10 @@ def put_object_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, fil
         A dict of the metadata that should be saved along with the object.
     content_type : str
         The http content type to associate the object with.
+    chunk_size: int
+        The amount of bytes to use in memory for processing the object.
+    retries: int
+        The number of url request retries to perform before failing. This shouldn't be necessary given the max_attempts parameter in the s3_client function...but I'll keep it around until it's clearly not needed.
 
     Returns
     -------
@@ -400,8 +397,6 @@ def put_object_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, fil
                 while chunk:
                     f.write(chunk)
                     chunk = file_obj.read(chunk_size)
-
-            # obj2 = s3.put_object(Bucket=bucket, Key=key, Body=obj, Metadata=metadata, ContentType=content_type)
             break
         except bc_exceptions.ConnectionClosedError as err:
             print(err)
@@ -419,9 +414,9 @@ def put_object_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, fil
         #     sleep(3)
 
 
-def put_file_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, file_path: AnyPath, metadata: dict=None, content_type: str=None, retries=3):
+def put_file_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, file_path: AnyPath, metadata: dict=None, content_type: str=None, retries: int=3):
     """
-    Function to upload data to an S3 bucket.
+    Function to upload a local file to an S3 bucket.
 
     Parameters
     ----------
@@ -437,6 +432,8 @@ def put_file_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, file_
         A dict of the metadata that should be saved along with the object.
     content_type : str
         The http content type to associate the object with.
+    retries: int
+        The number of url request retries to perform before failing. This shouldn't be necessary given the max_attempts parameter in the s3_client function...but I'll keep it around until it's clearly not needed.
 
     Returns
     -------
@@ -446,8 +443,7 @@ def put_file_s3(s3: botocore.client.BaseClient, bucket: str, obj_key: str, file_
         put_object_s3(s3, bucket, obj_key, f, metadata, content_type, retries=retries)
 
 
-
-def copy_object_s3(s3: botocore.client.BaseClient, source_bucket: str, dest_bucket: str, source_key: str, dest_key: str, retries=3):
+def copy_object_s3(s3: botocore.client.BaseClient, source_bucket: str, dest_bucket: str, source_key: str, dest_key: str, retries: int=3):
     """
     Copies an object in an S3 database to another location in an S3 database. They must have the same fundemental connection_config. All metadata is copied to the new object.
     https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.copy_object
@@ -464,10 +460,12 @@ def copy_object_s3(s3: botocore.client.BaseClient, source_bucket: str, dest_buck
         The key name for the source object.
     dest_key : str
         The key name for the destination object.
+    retries: int
+        The number of url request retries to perform before failing. This shouldn't be necessary given the max_attempts parameter in the s3_client function...but I'll keep it around until it's clearly not needed.
 
     Returns
     -------
-    None
+    S3 response
     """
     source_dict = {'Bucket': source_bucket, 'Key': source_key}
 
@@ -494,7 +492,7 @@ def copy_object_s3(s3: botocore.client.BaseClient, source_bucket: str, dest_buck
     return resp
 
 
-def multi_copy_object_s3(s3: botocore.client.BaseClient, source_bucket: str, dest_bucket: str, source_dest_keys: list, retries=5, threads=30):
+def multi_copy_object_s3(s3: botocore.client.BaseClient, source_bucket: str, dest_bucket: str, source_dest_keys: list, retries: int=5, threads: int=30):
     """
     Same as the copy_object_s3 except with multi threading. The input source_dest_keys must be a list of dictionaries with keys named source_key and dest_key.
 
@@ -504,12 +502,18 @@ def multi_copy_object_s3(s3: botocore.client.BaseClient, source_bucket: str, des
         A boto3 client object
     source_bucket : str
         The S3 source bucket.
-    source_dest_bucket : list of dict
+    dest_bucket : str
+        The S3 destination bucket.
+    source_dest_keys : list of dict
         A list of dictionaries with keys named source_key and dest_key. Similar to the copy_obect_s3 function.
+    retries: int
+        The number of url request retries to perform before failing. This shouldn't be necessary given the max_attempts parameter in the s3_client function...but I'll keep it around until it's clearly not needed.
+    threads: int
+        The number of simultaneous copy_object_s3 runs.
 
     Returns
     -------
-    None
+    list of S3 responses
     """
     keys = copy.deepcopy(source_dest_keys)
 
@@ -546,6 +550,8 @@ def list_objects_s3(s3: botocore.client.BaseClient, bucket: str, prefix: str, st
         A delimiter is a character you use to group keys.
     continuation_token : str
         ContinuationToken indicates to S3 that the list is being continued on this bucket with a token.
+    date_format : str
+        If the object key has a date in it, pass a date format string to parse and add a column called KeyDate.
 
     Returns
     -------
@@ -610,6 +616,8 @@ def list_object_versions_s3(s3: botocore.client.BaseClient, bucket: str, prefix:
         The S3 key to start at.
     delimiter : str or None
         A delimiter is a character you use to group keys.
+    date_format : str
+        If the object key has a date in it, pass a date format string to parse and add a column called KeyDate.
 
     Returns
     -------

@@ -8,6 +8,7 @@ Created on Sat Oct  8 11:02:46 2022
 import io
 import os
 import pandas as pd
+from pydantic import BaseModel, HttpUrl
 
 #######################################################
 ### Parameters
@@ -18,6 +19,13 @@ contabo_public_key_pattern = '{base_url}:{bucket}/{obj_key}'
 
 #######################################################
 ### Functions
+
+
+class ConnectionConfig(BaseModel):
+    service_name: str
+    endpoint_url: HttpUrl
+    aws_access_key_id: str
+    aws_secret_access_key: str
 
 
 def create_public_s3_url(base_url, bucket, obj_key):

@@ -33,15 +33,15 @@ build:
 requirements:
   build:
     - python >=3.8
-    - setuptools
+    - hatchling
   run:
     - python >=3.8
     - boto3
     - requests
-    - pandas
+    - pandas <2
     - zstandard
     - smart_open
-    - pydantic
+    - pydantic <2
 
 test:
   imports:

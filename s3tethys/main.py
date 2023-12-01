@@ -626,9 +626,9 @@ def list_object_versions_s3(s3: botocore.client.BaseClient, bucket: str, prefix:
     js = []
     while True:
         if isinstance(delimiter, str):
-            js1 = s3_client.list_object_versions(Bucket=bucket, Prefix=prefix, KeyMarker=start_after, Delimiter=delimiter)
+            js1 = s3.list_object_versions(Bucket=bucket, Prefix=prefix, KeyMarker=start_after, Delimiter=delimiter)
         else:
-            js1 = s3_client.list_object_versions(Bucket=bucket, Prefix=prefix, KeyMarker=start_after)
+            js1 = s3.list_object_versions(Bucket=bucket, Prefix=prefix, KeyMarker=start_after)
 
         if 'Versions' in js1:
             js.extend(js1['Versions'])

@@ -10,7 +10,7 @@ here = os.path.abspath(os.path.dirname(__file__))
 name = 's3tethys'
 main_package = 's3tethys'
 datasets = 'datasets'
-version = '0.0.8'
+version = '0.1.0'
 descrip = 'Python S3 tools for tethys using smart_open'
 
 # The below code is for readthedocs. To have sphinx/readthedocs interact with
